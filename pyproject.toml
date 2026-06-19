@@ -1,0 +1,19 @@
+[project]
+name = "guhaizeiwang-system"
+version = "0.1.0"
+description = "A-share post-close limit-up and turnover attribution pipeline powered by Futu OpenAPI."
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+futu = [
+    "futu-api>=10.4.6408",
+]
+akshare = [
+    "akshare",
+]
+tushare = [
+    "tushare",
+]
+[project.scripts]
+ghzw-daily = "ghzw.cli:main"

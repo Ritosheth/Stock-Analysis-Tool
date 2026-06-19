@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>股海贼王工作台</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>股海贼王工作台</h1>
+      <p id="healthText">本地服务检查中</p>
+    </div>
+    <div class="top-actions">
+      <button id="refreshReports" type="button">刷新报表</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="side">
+      <section class="panel">
+        <h2>今日复盘</h2>
+        <label>
+          <span>交易日期</span>
+          <input id="dailyDate" type="date">
+        </label>
+        <label>
+          <span>成交额 TopN</span>
+          <input id="turnoverLimit" type="number" min="1" max="300" value="30">
+        </label>
+        <label>
+          <span>证据源</span>
+          <select id="evidenceSource">
+            <option value="auto">自动：本地 + Futu + CNINFO + 新闻/龙虎榜</option>
+            <option value="local">本地原因库</option>
+            <option value="futu">本地 + Futu</option>
+            <option value="cninfo">本地 + CNINFO</option>
+            <option value="eastmoney">本地 + 新闻/龙虎榜</option>
+            <option value="news">本地 + 新闻/快讯</option>
+            <option value="billboard">本地 + 龙虎榜</option>
+            <option value="none">仅规则推断</option>
+          </select>
+        </label>
+        <details>
+          <summary>Futu OpenD</summary>
+          <label>
+            <span>地址</span>
+            <input id="futuHost" type="text" value="127.0.0.1">
+          </label>
+          <label>
+            <span>端口</span>
+            <input id="futuPort" type="number" min="1" value="11111">
+          </label>
+        </details>
+        <button id="runDaily" class="primary" type="button">生成复盘</button>
+      </section>
+
+      <section class="panel">
+        <h2>次日验证</h2>
+        <label>
+          <span>日报文件</span>
+          <select id="validationReport"></select>
+        </label>
+        <label>
+          <span>次日日期</span>
+          <input id="nextDate" type="date">
+        </label>
+        <button id="runValidation" class="primary" type="button">生成验证</button>
+      </section>
+
+      <section class="panel reports-panel">
+        <h2>历史报表</h2>
+        <div id="reportList" class="report-list"></div>
+      </section>
+    </aside>
+
+    <section class="workspace">
+      <div id="status" class="status idle">准备就绪</div>
+
+      <div class="table-toolbar">
+        <div>
+          <h2 id="tableTitle">尚未选择报表</h2>
+          <p id="rowCount">0 行</p>
+        </div>
+        <div class="tools">
+          <input id="searchInput" type="search" placeholder="搜索代码、名称、题材、复盘">
+          <select id="fieldFilter"></select>
+          <select id="valueFilter"></select>
+          <button id="clearFilters" type="button">清除</button>
+          <button id="downloadCsv" type="button" disabled>下载 CSV</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table id="dataTable">
+          <thead></thead>
+          <tbody>
+            <tr>
+              <td class="empty">请选择或生成一份报表</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
