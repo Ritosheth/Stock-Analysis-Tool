@@ -139,6 +139,7 @@ def parse_daily_payload(payload: Mapping[str, object], config: GuiConfig) -> Dic
         "port": port,
         "turnover_limit": turnover_limit,
         "evidence_source": str(payload.get("evidence_source") or "auto"),
+        "fast_mode": _parse_bool(payload.get("fast_mode"), default=True),
         "output_dir": config.resolved_output_dir,
         "cache_dir": config.resolved_cache_dir,
     }
@@ -320,17 +321,32 @@ def _read_json_body(body: bytes) -> Dict[str, object]:
     return data
 
 
+class _EmptyHistoryProvider:
+    def get_history(self, code: str, days: int = 120, end: date | None = None):
+        return []
+
+
 def _handle_run_daily(payload: Mapping[str, object], config: GuiConfig):
     parsed = parse_daily_payload(payload, config)
     client = FutuAShareClient(host=str(parsed["host"]), port=int(parsed["port"]))
     try:
-        primary_history, fallback_history = _daily_history_sources(client)
-        history_provider = CachedHistoryProvider(
-            cache=DailyBarCache(parsed["cache_dir"]),
-            primary_provider=primary_history,
-            fallback_provider=fallback_history,
-            disable_fallback_on_error=False,
-        )
+        fast_mode = bool(parsed["fast_mode"])
+        if fast_mode:
+            history_provider = _EmptyHistoryProvider()
+            evidence_source = "none"
+            forum_search_enabled = False
+            collect_capital_flow = False
+        else:
+            primary_history, fallback_history = _daily_history_sources(client)
+            history_provider = CachedHistoryProvider(
+                cache=DailyBarCache(parsed["cache_dir"]),
+                primary_provider=primary_history,
+                fallback_provider=fallback_history,
+                disable_fallback_on_error=False,
+            )
+            evidence_source = str(parsed["evidence_source"])
+            forum_search_enabled = True
+            collect_capital_flow = True
         result = run_daily_pipeline(
             client=client,
             trade_date=parsed["date"],
@@ -338,14 +354,17 @@ def _handle_run_daily(payload: Mapping[str, object], config: GuiConfig):
             turnover_limit=int(parsed["turnover_limit"]),
             cache_dir=parsed["cache_dir"],
             history_provider=history_provider,
-            evidence_source=str(parsed["evidence_source"]),
+            evidence_source=evidence_source,
             generate_html_report=True,
-            forum_search_enabled=True,
+            forum_search_enabled=forum_search_enabled,
+            collect_capital_flow=collect_capital_flow,
         )
     finally:
         client.close()
     report = read_report_csv(result.output_path) if result.output_path else None
     message = "已生成 %s 行复盘记录" % len(result.records)
+    if parsed["fast_mode"]:
+        message = "%s（快速模式：已跳过历史K线、资金流、线上证据和论坛检索）" % message
     if result.report_path:
         message = "%s，并生成 HTML 报告 %s" % (message, result.report_path.name)
     if result.warning:
@@ -408,6 +427,19 @@ def _friendly_error(exc: Exception) -> str:
     if "connect" in lowered or "connection" in lowered or "10061" in lowered:
         return "无法连接 Futu OpenD，请确认 Futu OpenD 已启动并监听 127.0.0.1:11111。"
     return text or "运行失败，请查看终端日志。"
+
+
+def _parse_bool(value: object, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "y", "on"}:
+        return True
+    if text in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
 
 
 if __name__ == "__main__":

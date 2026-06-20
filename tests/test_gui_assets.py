@@ -35,6 +35,14 @@ class GuiAssetsTest(unittest.TestCase):
         self.assertIn('type === "html"', app_js)
         self.assertIn("window.open(`/download?path=", app_js)
 
+    def test_fast_mode_is_default_gui_option(self):
+        index_html = Path("src/ghzw/gui_assets/index.html").read_text(encoding="utf-8")
+        app_js = Path("src/ghzw/gui_assets/app.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="fastMode"', index_html)
+        self.assertIn('type="checkbox" checked', index_html)
+        self.assertIn("fast_mode: elements.fastMode.checked", app_js)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -44,6 +44,7 @@ const elements = {
   refreshReports: document.querySelector("#refreshReports"),
   dailyDate: document.querySelector("#dailyDate"),
   turnoverLimit: document.querySelector("#turnoverLimit"),
+  fastMode: document.querySelector("#fastMode"),
   evidenceSource: document.querySelector("#evidenceSource"),
   futuHost: document.querySelector("#futuHost"),
   futuPort: document.querySelector("#futuPort"),
@@ -331,13 +332,14 @@ function renderTable() {
 
 async function runDaily() {
   setBusy(true);
-  setStatus("正在生成复盘，历史 K 线较多时会稍慢", "running");
+  setStatus(elements.fastMode.checked ? "正在快速生成复盘" : "正在生成深度复盘，历史 K 线和证据检索会稍慢", "running");
   try {
     const payload = await api("/api/run-daily", {
       method: "POST",
       body: JSON.stringify({
         date: elements.dailyDate.value,
         turnover_limit: elements.turnoverLimit.value,
+        fast_mode: elements.fastMode.checked,
         evidence_source: elements.evidenceSource.value,
         host: elements.futuHost.value,
         port: elements.futuPort.value,
@@ -388,6 +390,9 @@ function bindEvents() {
     }
   });
   elements.runDaily.addEventListener("click", runDaily);
+  elements.fastMode.addEventListener("change", () => {
+    elements.evidenceSource.disabled = elements.fastMode.checked;
+  });
   elements.runValidation.addEventListener("click", runValidation);
   elements.searchInput.addEventListener("input", applyFilters);
   elements.fieldFilter.addEventListener("change", () => {
@@ -412,6 +417,7 @@ function bindEvents() {
 async function init() {
   elements.dailyDate.value = todayIso();
   elements.nextDate.value = todayIso();
+  elements.evidenceSource.disabled = elements.fastMode.checked;
   bindEvents();
   await checkHealth();
   try {

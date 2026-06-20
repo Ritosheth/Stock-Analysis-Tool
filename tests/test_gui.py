@@ -75,8 +75,16 @@ class GuiPayloadTests(unittest.TestCase):
         self.assertEqual(parsed["host"], "127.0.0.1")
         self.assertEqual(parsed["port"], 11111)
         self.assertEqual(parsed["turnover_limit"], 30)
+        self.assertTrue(parsed["fast_mode"])
         self.assertEqual(parsed["output_dir"], Path("/project/outputs/daily"))
         self.assertEqual(parsed["cache_dir"], Path("/project/data/cache"))
+
+    def test_parse_daily_payload_accepts_deep_mode(self):
+        config = GuiConfig(project_root=Path("/project"))
+
+        parsed = parse_daily_payload({"date": "2026-06-12", "fast_mode": False}, config)
+
+        self.assertFalse(parsed["fast_mode"])
 
     def test_parse_daily_payload_rejects_invalid_date(self):
         config = GuiConfig(project_root=Path("/project"))

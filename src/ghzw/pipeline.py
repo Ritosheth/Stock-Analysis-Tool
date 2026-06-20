@@ -216,6 +216,7 @@ def run_daily_pipeline(
     evidence_source: str = "auto",
     generate_html_report: bool = False,
     forum_search_enabled: bool = False,
+    collect_capital_flow: bool = True,
 ) -> DailyPipelineResult:
     stock_pool = client.get_stock_pool()
     snapshot_templates = client.get_snapshots(stock_pool)
@@ -248,7 +249,7 @@ def run_daily_pipeline(
     target_codes = sorted({item.code for item in limit_ups} | {item.code for item in turnover_top})
     memberships = client.get_owner_plates(target_codes)
     history = {code: history_provider.get_history(code, end=trade_date) for code in target_codes}
-    if uses_historical_snapshot:
+    if uses_historical_snapshot or not collect_capital_flow:
         capital_flows = {code: CapitalFlow(code=code) for code in target_codes}
     else:
         capital_flows = client.get_capital_flows(target_codes)
