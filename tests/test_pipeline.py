@@ -7,9 +7,41 @@ from ghzw.event_catalog import build_daily_event_catalog
 from ghzw.lifecycle import WatchlistEntry
 from ghzw.models import CapitalFlow, DailyBar, PlateMembership, ReasonEvidence, StockSnapshot
 from ghzw.pipeline import build_daily_records, run_daily_pipeline, has_enough_historical_snapshot_coverage
+from ghzw.theme_hub import FormalThemeClassification
 
 
 class PipelineTest(unittest.TestCase):
+    def test_build_daily_records_uses_local_theme_hub_for_all_four_classification_fields(self):
+        snapshots = [
+            StockSnapshot(code="SH.600103", name="主题库分类股", last_price=11, prev_close_price=10, turnover=100)
+        ]
+        memberships = {
+            "SH.600103": [
+                PlateMembership(code="HY103", name="Futu行业", plate_type="INDUSTRY"),
+                PlateMembership(code="GN103", name="Futu概念", plate_type="CONCEPT"),
+            ]
+        }
+
+        record = build_daily_records(
+            trade_date=date(2026, 1, 2),
+            snapshots=snapshots,
+            memberships_by_code=memberships,
+            history_by_code={},
+            capital_flow_by_code={},
+            turnover_limit=1,
+            formal_classifications_by_code={
+                "SH.600103": FormalThemeClassification(
+                    industries=["主题库行业"], concepts=["主题库概念", "主题库细分"]
+                )
+            },
+        )[0]
+
+        self.assertEqual(record.industries, "主题库行业")
+        self.assertEqual(record.concepts, "主题库概念、主题库细分")
+        self.assertEqual(record.raw_theme, "主题库概念")
+        self.assertEqual(record.core_theme, "主题库概念")
+        self.assertEqual(record.theme_classification_source, "A股主题库")
+
     def test_build_daily_records_prefers_formal_theme_library_and_marks_fallback(self):
         snapshots = [
             StockSnapshot(code="SH.600101", name="正式分类股", last_price=11, prev_close_price=10, turnover=100),
@@ -32,8 +64,8 @@ class PipelineTest(unittest.TestCase):
         by_code = {record.code: record for record in records}
         self.assertEqual(by_code["SH.600101"].core_theme, "商业航天")
         self.assertEqual(by_code["SH.600101"].theme_classification_source, "A股主题库")
-        self.assertEqual(by_code["SH.600102"].theme_classification_source, "副图归类（待进一步归类）")
-        self.assertEqual(by_code["SH.600102"].as_dict()["题材分类来源"], "副图归类（待进一步归类）")
+        self.assertEqual(by_code["SH.600102"].theme_classification_source, "Futu分类（A股主题库无相应分类）")
+        self.assertEqual(by_code["SH.600102"].as_dict()["题材分类来源"], "Futu分类（A股主题库无相应分类）")
 
     def test_build_daily_records_merges_limit_up_turnover_theme_stage_and_flow(self):
         snapshots = [

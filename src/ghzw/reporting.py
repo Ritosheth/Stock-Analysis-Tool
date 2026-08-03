@@ -763,8 +763,8 @@ def _escape(value: object) -> str:
 
 def _display_theme(record: DailyRecord) -> str:
     theme = record.core_theme or "未匹配"
-    if record.theme_classification_source == "副图归类（待进一步归类）":
-        return "%s（待进一步归类）" % theme
+    if record.theme_classification_source == "Futu分类（A股主题库无相应分类）":
+        return "%s（Futu分类；A股主题库无相应分类）" % theme
     return theme
 
 

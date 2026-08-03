@@ -33,7 +33,12 @@ from .forum_sources import ForumCollection, collect_forum_discussions
 from .reporting import build_report_context, load_recent_daily_records, render_html_report, write_html_report
 from .sentiment import classify_market_cycle_from_sentiment, compute_market_sentiment
 from .themes import clean_plate_memberships, refine_industry_names, select_core_theme
-from .theme_hub import load_formal_themes
+from .theme_hub import (
+    FORMAL_THEME_SOURCE,
+    FUTU_FALLBACK_THEME_SOURCE,
+    FormalThemeClassification,
+    load_formal_theme_classifications,
+)
 
 
 @dataclass(frozen=True)
@@ -57,6 +62,7 @@ def build_daily_records(
     watchlist_entries: Sequence[WatchlistEntry] = (),
     daily_events: Sequence[DailyEvent] = (),
     formal_themes_by_code: Mapping[str, Sequence[str]] | None = None,
+    formal_classifications_by_code: Mapping[str, FormalThemeClassification] | None = None,
 ) -> List[DailyRecord]:
     limit_ups = find_limit_up_candidates(snapshots)
     turnover_top = select_turnover_top(snapshots, turnover_limit)
@@ -75,8 +81,12 @@ def build_daily_records(
         code: _matching_reasons(trade_date, code, local_reasons, online_reasons)
         for code in target_codes
     }
-    industry_text_by_code = {
+    futu_industry_text_by_code = {
         code: refine_industry_names(memberships_by_code.get(code, []))
+        for code in target_codes
+    }
+    futu_concepts_by_code = {
+        code: _join_plates(cleaned_memberships_by_code.get(code, []), "CONCEPT")
         for code in target_codes
     }
     daily_events = _merge_daily_events(
@@ -84,7 +94,7 @@ def build_daily_records(
         _infer_daily_events_from_contexts(
             trade_date=trade_date,
             memberships_by_code=cleaned_memberships_by_code,
-            industry_text_by_code=industry_text_by_code,
+            industry_text_by_code=futu_industry_text_by_code,
             reasons_by_code=reasons_by_code,
         ),
     )
@@ -93,29 +103,43 @@ def build_daily_records(
     theme_rank_by_plate = {summary.plate_code: index + 1 for index, summary in enumerate(theme_summaries)}
     theme_tier_by_plate = classify_theme_tiers(theme_summaries)
     formal_themes_by_code = formal_themes_by_code or {}
+    formal_classifications = dict(formal_classifications_by_code or {})
+    for code, themes in formal_themes_by_code.items():
+        if code not in formal_classifications and themes:
+            formal_classifications[code] = FormalThemeClassification(
+                industries=[], concepts=list(themes)
+            )
+    classification_by_code = {
+        code: formal_classifications.get(code)
+        for code in target_codes
+    }
     raw_theme_by_code = {
-        code: select_core_theme(
-            cleaned_memberships_by_code.get(code, []),
-            theme_rank_by_plate,
-            industry_text=industry_text_by_code.get(code, ""),
+        code: (
+            classification_by_code[code].raw_theme
+            if classification_by_code.get(code) is not None
+            else select_core_theme(
+                cleaned_memberships_by_code.get(code, []),
+                theme_rank_by_plate,
+                industry_text=futu_industry_text_by_code.get(code, ""),
+            )
         )
         for code in target_codes
     }
     reclassification_by_code = {
         code: (
             {
-                "theme": formal_themes_by_code[code][0],
+                "theme": classification_by_code[code].core_theme,
                 "driver": "A股主题库正式分类",
                 "score": 100.0,
                 "level": "正式",
                 "reason": "采用A股主题库已维护的股票—主题关系。",
             }
-            if formal_themes_by_code.get(code)
+            if classification_by_code.get(code)
             else _reclassify_theme(
                 code=code,
                 raw_theme=raw_theme_by_code.get(code, "未匹配"),
                 memberships=cleaned_memberships_by_code.get(code, []),
-                industry_text=industry_text_by_code.get(code, ""),
+                industry_text=futu_industry_text_by_code.get(code, ""),
                 evidences=reasons_by_code.get(code, []),
                 daily_events=daily_events,
             )
@@ -123,11 +147,31 @@ def build_daily_records(
         for code in target_codes
     }
     core_theme_by_code = {
-        code: reclassification_by_code.get(code, {}).get("theme", raw_theme_by_code.get(code, "未匹配"))
+        code: (
+            classification.core_theme
+            if (classification := classification_by_code.get(code)) is not None
+            else raw_theme_by_code.get(code, "未匹配")
+        )
         for code in target_codes
     }
     theme_source_by_code = {
-        code: "A股主题库" if formal_themes_by_code.get(code) else "副图归类（待进一步归类）"
+        code: FORMAL_THEME_SOURCE if classification_by_code.get(code) else FUTU_FALLBACK_THEME_SOURCE
+        for code in target_codes
+    }
+    industry_text_by_code = {
+        code: (
+            "、".join(classification.industries)
+            if (classification := classification_by_code.get(code)) is not None and classification.industries
+            else futu_industry_text_by_code.get(code, "")
+        )
+        for code in target_codes
+    }
+    concepts_by_code = {
+        code: (
+            "、".join(classification.concepts)
+            if (classification := classification_by_code.get(code)) is not None and classification.concepts
+            else futu_concepts_by_code.get(code, "")
+        )
         for code in target_codes
     }
     for code, entry in watchlist_by_code.items():
@@ -220,7 +264,7 @@ def build_daily_records(
                 turnover_rate=snapshot.turnover_rate,
                 volume_ratio=snapshot.volume_ratio,
                 industries=industry_text_by_code.get(code, refine_industry_names(memberships)),
-                concepts=_join_plates(cleaned_memberships, "CONCEPT"),
+                concepts=concepts_by_code.get(code, ""),
                 market_cycle=market_cycle,
                 theme_rank=selected_theme_rank_by_code.get(code),
                 theme_tier=theme_tier,
@@ -232,7 +276,7 @@ def build_daily_records(
                 reason_type=reason_summary,
                 review=_review(snapshot, memberships, stage, role_assessment.role, market_cycle, theme_tier, next_action, core_theme),
                 core_theme=core_theme,
-                theme_classification_source=theme_source_by_code.get(code, "副图归类（待进一步归类）"),
+                theme_classification_source=theme_source_by_code.get(code, FUTU_FALLBACK_THEME_SOURCE),
                 raw_theme=raw_theme_by_code.get(code, core_theme),
                 reclassified_theme=reclassification.get("theme", core_theme),
                 actual_driver=reclassification.get("driver", ""),
@@ -375,7 +419,7 @@ def run_daily_pipeline(
     target_names_by_code = {snapshot.code: snapshot.name for snapshot in snapshots if snapshot.code in target_codes}
     online_reasons = _collect_online_reasons(evidence_source, client, trade_date, target_codes, target_names_by_code)
     daily_events = build_daily_event_catalog(trade_date, online_reasons)
-    formal_themes_by_code = load_formal_themes(target_codes)
+    formal_classifications_by_code = load_formal_theme_classifications(target_codes)
     records = build_daily_records(
         trade_date=trade_date,
         snapshots=snapshots,
@@ -387,7 +431,7 @@ def run_daily_pipeline(
         online_reasons=online_reasons,
         watchlist_entries=watchlist_entries,
         daily_events=daily_events,
-        formal_themes_by_code=formal_themes_by_code,
+        formal_classifications_by_code=formal_classifications_by_code,
     )
     output_path = write_csv(records, output_dir / ("%s-daily-review.csv" % trade_date.isoformat()))
     report_path = None
