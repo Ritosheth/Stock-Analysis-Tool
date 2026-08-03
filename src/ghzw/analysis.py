@@ -169,13 +169,17 @@ def assess_roles(
 
     capacity_core = max(snapshots, key=lambda item: item.turnover)
     market_core = max(snapshots, key=lambda item: (item.market_val, item.turnover))
-    leader = max(snapshots, key=lambda item: _role_score(item, stage_by_code.get(item.code, StageTag(labels=[])), theme_tier))
+    leader = max(snapshots, key=lambda item: _leadership_score(item, stage_by_code.get(item.code, StageTag(labels=[])), theme_tier))
     result: Dict[str, RoleAssessment] = {}
     for snapshot in snapshots:
         stage = stage_by_code.get(snapshot.code, StageTag(labels=[]))
         score, basis_items = _role_score_with_basis(snapshot, stage, theme_tier)
         role = _base_role(snapshot)
-        if snapshot.code == leader.code and (stage.board_streak > 0 or snapshot.change_pct >= 9.8):
+        if _is_ipo_first_day(snapshot):
+            role = "IPO首日龙头"
+            score += 20
+            basis_items.append("新股首日独立周期")
+        elif snapshot.code == leader.code and (stage.board_streak > 0 or snapshot.change_pct >= 9.8):
             role = "龙头"
             basis_items.append("题材强度最高")
         elif snapshot.code == capacity_core.code and snapshot.change_pct > 0:
@@ -233,6 +237,10 @@ def _looks_like_st_name(name: str) -> bool:
     return upper_name.startswith("ST") or upper_name.startswith("*ST")
 
 
+def _is_ipo_first_day(snapshot: StockSnapshot) -> bool:
+    return snapshot.name.strip().upper().startswith("N") and snapshot.change_pct >= 44.0
+
+
 def _base_role(snapshot: StockSnapshot) -> str:
     if snapshot.change_pct <= 0:
         return "杂毛"
@@ -243,6 +251,24 @@ def _base_role(snapshot: StockSnapshot) -> str:
 
 def _role_score(snapshot: StockSnapshot, stage: StageTag, theme_tier: str) -> float:
     return _role_score_with_basis(snapshot, stage, theme_tier)[0]
+
+
+def _leadership_score(snapshot: StockSnapshot, stage: StageTag, theme_tier: str) -> float:
+    score = 0.0
+    score += stage.board_streak * 15
+    if snapshot.change_pct >= 9.8:
+        score += 20
+    elif snapshot.change_pct >= 6:
+        score += 8
+    if 5 <= snapshot.turnover_rate <= 25:
+        score += 5
+    if snapshot.volume_ratio >= 1.5:
+        score += 5
+    if theme_tier == "主线":
+        score += 4
+    elif theme_tier in {"支线", "轮动"}:
+        score += 2
+    return score
 
 
 def _role_score_with_basis(snapshot: StockSnapshot, stage: StageTag, theme_tier: str):

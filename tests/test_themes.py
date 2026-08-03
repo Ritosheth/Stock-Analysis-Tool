@@ -45,6 +45,55 @@ class ThemeCleaningTest(unittest.TestCase):
 
         self.assertEqual(result, "人工智能")
 
+    def test_select_core_theme_prefers_business_fit_over_generic_hot_theme(self):
+        memberships = clean_plate_memberships(
+            [
+                PlateMembership(code="HY001", name="军工电子Ⅱ", plate_type="INDUSTRY"),
+                PlateMembership(code="GN001", name="半导体", plate_type="CONCEPT"),
+                PlateMembership(code="GN002", name="卫星互联网", plate_type="CONCEPT"),
+                PlateMembership(code="GN003", name="商业航天", plate_type="CONCEPT"),
+            ]
+        )
+        ranks = {"THEME:半导体": 1, "THEME:商业航天": 12}
+
+        result = select_core_theme(memberships, ranks, industry_text="军工电子Ⅱ")
+
+        self.assertEqual(result, "商业航天")
+
+    def test_select_core_theme_uses_reason_hint_to_choose_pcb_over_generic_hot_theme(self):
+        memberships = clean_plate_memberships(
+            [
+                PlateMembership(code="HY001", name="元件", plate_type="INDUSTRY"),
+                PlateMembership(code="GN001", name="机器人概念", plate_type="CONCEPT"),
+                PlateMembership(code="GN002", name="PCB概念", plate_type="CONCEPT"),
+                PlateMembership(code="GN003", name="华为概念", plate_type="CONCEPT"),
+            ]
+        )
+        ranks = {"THEME:机器人": 1, "THEME:PCB": 6, "GN003": 2}
+
+        result = select_core_theme(
+            memberships,
+            ranks,
+            industry_text="元件-PCB概念",
+            reason_hint="中报预增 PCB 覆铜板 服务器交换机需求提升",
+        )
+
+        self.assertEqual(result, "PCB")
+
+    def test_select_core_theme_avoids_semiconductor_when_industry_conflicts(self):
+        memberships = clean_plate_memberships(
+            [
+                PlateMembership(code="HY001", name="农产品加工", plate_type="INDUSTRY"),
+                PlateMembership(code="GN001", name="半导体", plate_type="CONCEPT"),
+                PlateMembership(code="GN002", name="幽门螺杆菌概念", plate_type="CONCEPT"),
+            ]
+        )
+        ranks = {"THEME:半导体": 1, "THEME:幽门螺杆菌概念": 20}
+
+        result = select_core_theme(memberships, ranks, industry_text="农产品加工")
+
+        self.assertNotEqual(result, "半导体")
+
     def test_select_core_theme_returns_unmatched_when_no_clean_concept(self):
         result = select_core_theme([PlateMembership(code="HY001", name="银行", plate_type="INDUSTRY")], {})
 

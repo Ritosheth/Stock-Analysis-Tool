@@ -1,6 +1,16 @@
+import os
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
-from ghzw.futu_client import FutuAShareClient, RequestPacer, is_history_quota_error, is_history_rate_limit_error
+from ghzw.futu_client import (
+    FutuAShareClient,
+    RequestPacer,
+    _pick_futu_home_fallback,
+    is_history_quota_error,
+    is_history_rate_limit_error,
+)
 
 
 class FakeClock:
@@ -52,6 +62,21 @@ class FutuClientHelpersTest(unittest.TestCase):
         self.assertEqual(first, [])
         self.assertEqual(second, [])
         self.assertEqual(client._ctx.calls, 1)
+
+    def test_pick_futu_home_fallback_prefers_env_override(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            custom = Path(tmp) / "custom-home"
+            with mock.patch.dict(os.environ, {"GHZW_FUTU_HOME": str(custom)}, clear=False):
+                chosen = _pick_futu_home_fallback()
+        self.assertEqual(chosen, custom)
+
+    def test_pick_futu_home_fallback_uses_tmp_home_before_system_tmp(self):
+        expected = Path.cwd() / ".tmp_home"
+        tempdir = Path(tempfile.gettempdir()) / "ghzw-futu-home"
+        with mock.patch.dict(os.environ, {}, clear=False):
+            with mock.patch("ghzw.futu_client._is_writable_directory", side_effect=lambda path: path in {expected, tempdir}):
+                chosen = _pick_futu_home_fallback()
+        self.assertEqual(chosen, expected)
 
 
 class FakeQuotaContext:

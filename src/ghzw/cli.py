@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import date
+from datetime import date, datetime, time
 from pathlib import Path
 import sys
 
@@ -62,6 +62,15 @@ def main() -> int:
         return 0
 
     trade_date = date.fromisoformat(args.date)
+    if _should_skip_intraday_review(trade_date):
+        note_path = _write_skip_note(
+            trade_date=trade_date,
+            output_dir=Path(args.output_dir),
+            reason="A股尚未收盘，当前仅为盘中时点，跳过正式每日复盘生成以避免误导。",
+        )
+        print("Skipped daily review generation: %s" % note_path, file=sys.stderr)
+        return 0
+
     client = FutuAShareClient(host=args.host, port=args.port)
     try:
         primary, fallback = _history_sources(args.history_source, args.tushare_token, futu_client=client)
@@ -90,6 +99,38 @@ def main() -> int:
     if result.report_warning:
         print("Warning: %s" % result.report_warning, file=sys.stderr)
     return 0
+
+
+def _should_skip_intraday_review(trade_date: date) -> bool:
+    if trade_date != date.today():
+        return False
+    return datetime.now().time() < time(15, 5)
+
+
+def _write_skip_note(trade_date: date, output_dir: Path, reason: str) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    note_path = output_dir / ("%s-run-notes.md" % trade_date.isoformat())
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    note_path.write_text(
+        "\n".join(
+            [
+                "# %s 每日复盘运行说明" % trade_date.isoformat(),
+                "",
+                "- 生成状态：",
+                "  - 已跳过正式 CSV/HTML 日报生成。",
+                "- 跳过原因：",
+                "  - %s" % reason,
+                "- 当前时间：",
+                "  - `%s CST`" % timestamp,
+                "- 处理原则：",
+                "  - 收盘前不产出正式每日复盘，避免将盘中行情误当作收盘结论。",
+                "- 下一步：",
+                "  - 请在 15:05 CST 之后重新运行同一命令生成正式日报。",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return note_path
 
 def _history_sources(history_source: str, tushare_token: str | None, futu_client):
     if history_source == "futu":

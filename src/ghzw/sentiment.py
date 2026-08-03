@@ -53,14 +53,39 @@ def compute_market_sentiment(
 
 
 def classify_market_cycle_from_sentiment(sentiment: MarketSentiment) -> str:
-    if sentiment.limit_up_count >= 80 or (sentiment.limit_up_count >= 50 and sentiment.positive_ratio >= 0.65):
-        return "高潮"
+    yesterday_feedback = sentiment.yesterday_limit_up_avg_change_pct
+    weak_yesterday_feedback = yesterday_feedback is not None and yesterday_feedback < -1.5
+    broad_positive = sentiment.positive_ratio >= 0.55
+    strong_breadth = sentiment.positive_ratio >= 0.68
+    thin_boards = sentiment.max_board_streak <= 3 or sentiment.board_streak_count <= 5
+    heavy_limit_downs = sentiment.limit_down_count >= max(12, sentiment.limit_up_count // 3)
+
     if sentiment.limit_up_count <= 10 and sentiment.positive_ratio < 0.35:
         return "冰点"
+    if sentiment.limit_down_count >= 20 and sentiment.positive_ratio < 0.5 and sentiment.avg_change_pct < 0:
+        return "退潮"
+    if (
+        sentiment.limit_up_count >= 80
+        and strong_breadth
+        and sentiment.max_board_streak >= 4
+        and sentiment.board_streak_count >= 8
+        and sentiment.limit_down_count <= 8
+        and not weak_yesterday_feedback
+    ):
+        return "高潮"
+    if (
+        sentiment.limit_up_count >= 45
+        and broad_positive
+        and sentiment.max_board_streak >= 3
+        and sentiment.board_streak_count >= 5
+        and not heavy_limit_downs
+        and not weak_yesterday_feedback
+    ):
+        return "上升"
+    if sentiment.limit_up_count >= 25 and broad_positive and (thin_boards or heavy_limit_downs or weak_yesterday_feedback):
+        return "修复"
     if sentiment.limit_up_count <= 20 and sentiment.avg_change_pct < -0.5:
         return "退潮"
-    if sentiment.limit_up_count >= 35 and sentiment.positive_ratio >= 0.55:
-        return "上升"
     if sentiment.limit_up_count >= 20 and sentiment.avg_change_pct >= 0:
         return "修复"
     return "分歧"

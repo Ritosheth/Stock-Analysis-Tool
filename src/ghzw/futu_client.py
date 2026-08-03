@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-import time
+import os
 import sys
+import tempfile
+import time
 from datetime import date, timedelta
+from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Sequence
 
 from .models import CapitalFlow, DailyBar, PlateMembership, ReasonEvidence, StockSnapshot
@@ -44,6 +47,7 @@ class FutuAShareClient:
         history_min_interval: float = 0.55,
         history_rate_limit_sleep: float = 31.0,
     ):
+        _ensure_futu_home()
         from futu import OpenQuoteContext
 
         self._ctx = OpenQuoteContext(host=host, port=port)
@@ -200,6 +204,48 @@ class FutuAShareClient:
 
     def get_reason_evidence(self, trade_date: date, codes: Iterable[str]) -> List[ReasonEvidence]:
         return collect_futu_reason_evidence(self._ctx, trade_date, codes)
+
+
+def _ensure_futu_home() -> None:
+    home = os.environ.get("HOME")
+    if not home:
+        return
+
+    default_log_dir = Path(home) / ".com.futunn.FutuOpenD" / "Log"
+    if _is_writable_directory(default_log_dir):
+        return
+
+    fallback_home = _pick_futu_home_fallback()
+    (fallback_home / ".com.futunn.FutuOpenD" / "Log").mkdir(parents=True, exist_ok=True)
+    os.environ["HOME"] = str(fallback_home)
+
+
+def _pick_futu_home_fallback() -> Path:
+    env_override = os.environ.get("GHZW_FUTU_HOME")
+    candidates = []
+    if env_override:
+        candidates.append(Path(env_override).expanduser())
+    candidates.extend(
+        [
+            Path.cwd() / ".tmp_home",
+            Path(tempfile.gettempdir()) / "ghzw-futu-home",
+        ]
+    )
+    for candidate in candidates:
+        if _is_writable_directory(candidate):
+            return candidate
+    raise OSError("No writable fallback HOME for Futu OpenD logs")
+
+
+def _is_writable_directory(path: Path) -> bool:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".write-test"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+        return True
+    except OSError:
+        return False
 
 
 def collect_futu_reason_evidence(ctx, trade_date: date, codes: Iterable[str]) -> List[ReasonEvidence]:

@@ -155,6 +155,14 @@ class DailyRecord:
     reason_type: str
     review: str
     core_theme: str = "未匹配"
+    theme_classification_source: str = ""
+    raw_theme: str = ""
+    reclassified_theme: str = ""
+    actual_driver: str = ""
+    driver_event_id: str = ""
+    theme_match_score: float = 0.0
+    theme_match_level: str = ""
+    theme_mismatch_reason: str = ""
     reason_logic: str = ""
     driver_type: str = ""
     market_sentiment: str = ""
@@ -163,6 +171,13 @@ class DailyRecord:
     reason_source: str = ""
     evidence_time: str = ""
     limit_up_boards: str = ""
+    watchlist_note: str = ""
+    lifecycle_stage: str = ""
+    lifecycle_score: float = 0.0
+    lifecycle_signals: str = ""
+    lifecycle_discipline: str = ""
+    risk_level: str = ""
+    risk_flags: str = ""
 
     def as_dict(self) -> Dict[str, object]:
         return {
@@ -179,7 +194,15 @@ class DailyRecord:
             "量比": round(self.volume_ratio, 2),
             "所属行业": self.industries,
             "所属概念": self.concepts,
+            "原始题材": self.raw_theme or self.core_theme,
             "核心题材": self.core_theme,
+            "题材分类来源": self.theme_classification_source,
+            "重分类题材": self.reclassified_theme or self.core_theme,
+            "主导催化": self.actual_driver,
+            "主导事件ID": self.driver_event_id,
+            "题材匹配分": round(self.theme_match_score, 1),
+            "题材匹配度": self.theme_match_level,
+            "偏差原因": self.theme_mismatch_reason,
             "市场阶段": self.market_cycle,
             "市场情绪": self.market_sentiment,
             "题材强度排名": self.theme_rank if self.theme_rank is not None else "",
@@ -189,6 +212,13 @@ class DailyRecord:
             "角色依据": self.role_basis,
             "阶段": self.stage,
             "次日计划": self.next_action,
+            "观察备注": self.watchlist_note,
+            "强转弱阶段": self.lifecycle_stage,
+            "强转弱风险分": round(self.lifecycle_score, 1),
+            "强转弱信号": self.lifecycle_signals,
+            "观察纪律": self.lifecycle_discipline,
+            "红旗等级": self.risk_level,
+            "红旗信号": self.risk_flags,
             "资金流-净流入": self.net_inflow,
             "资金流-主力净流入": self.main_net_inflow,
             "上涨逻辑": self.reason_logic,

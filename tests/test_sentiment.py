@@ -40,11 +40,47 @@ class SentimentTest(unittest.TestCase):
         self.assertIn("涨停1/跌停1/上涨50%/连板高3/昨板+6.0%", result.summary)
 
     def test_classify_market_cycle_from_sentiment(self):
-        self.assertEqual(classify_market_cycle_from_sentiment(MarketSentiment(limit_up_count=85, positive_ratio=0.7)), "高潮")
+        self.assertEqual(
+            classify_market_cycle_from_sentiment(
+                MarketSentiment(limit_up_count=85, positive_ratio=0.7, max_board_streak=5, board_streak_count=10)
+            ),
+            "高潮",
+        )
         self.assertEqual(classify_market_cycle_from_sentiment(MarketSentiment(limit_up_count=5, positive_ratio=0.2)), "冰点")
-        self.assertEqual(classify_market_cycle_from_sentiment(MarketSentiment(limit_up_count=15, positive_ratio=0.4, avg_change_pct=-0.8)), "退潮")
-        self.assertEqual(classify_market_cycle_from_sentiment(MarketSentiment(limit_up_count=36, positive_ratio=0.6)), "上升")
+        self.assertEqual(
+            classify_market_cycle_from_sentiment(
+                MarketSentiment(limit_up_count=15, limit_down_count=22, positive_ratio=0.4, avg_change_pct=-0.8)
+            ),
+            "退潮",
+        )
+        self.assertEqual(
+            classify_market_cycle_from_sentiment(
+                MarketSentiment(limit_up_count=36, positive_ratio=0.6, max_board_streak=3, board_streak_count=6)
+            ),
+            "修复",
+        )
+        self.assertEqual(
+            classify_market_cycle_from_sentiment(
+                MarketSentiment(limit_up_count=52, positive_ratio=0.61, max_board_streak=4, board_streak_count=9, limit_down_count=6)
+            ),
+            "上升",
+        )
         self.assertEqual(classify_market_cycle_from_sentiment(MarketSentiment(limit_up_count=22, positive_ratio=0.5, avg_change_pct=0.1)), "修复")
+
+    def test_classify_market_cycle_avoids高潮_when_board_height_is_thin_and_limit_downs_are_heavy(self):
+        result = classify_market_cycle_from_sentiment(
+            MarketSentiment(
+                limit_up_count=79,
+                limit_down_count=22,
+                positive_ratio=0.72,
+                avg_change_pct=1.1,
+                max_board_streak=3,
+                board_streak_count=5,
+                yesterday_limit_up_avg_change_pct=-3.0,
+            )
+        )
+
+        self.assertEqual(result, "修复")
 
 
 if __name__ == "__main__":

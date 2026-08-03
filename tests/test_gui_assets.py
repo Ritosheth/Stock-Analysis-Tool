@@ -29,6 +29,36 @@ class GuiAssetsTest(unittest.TestCase):
         self.assertLess(boards_index, turnover_index)
         self.assertNotIn('"成交额"', block)
 
+    def test_lifecycle_headers_are_prioritized_and_filterable(self):
+        app_js = Path("src/ghzw/gui_assets/app.js").read_text(encoding="utf-8")
+        priority_match = re.search(r"const priorityHeaders = \[(.*?)\];", app_js, flags=re.S)
+        filter_match = re.search(r"const filterFields = \[(.*?)\];", app_js, flags=re.S)
+        self.assertIsNotNone(priority_match)
+        self.assertIsNotNone(filter_match)
+
+        priority_block = priority_match.group(1)
+        filter_block = filter_match.group(1)
+        next_action_index = priority_block.index('"次日计划"')
+        lifecycle_index = priority_block.index('"强转弱阶段"')
+
+        self.assertLess(next_action_index, lifecycle_index)
+        self.assertIn('"原始题材"', priority_block)
+        self.assertIn('"重分类题材"', priority_block)
+        self.assertIn('"主导催化"', priority_block)
+        self.assertIn('"题材匹配分"', priority_block)
+        self.assertIn('"题材匹配度"', priority_block)
+        self.assertIn('"偏差原因"', priority_block)
+        self.assertIn('"观察备注"', priority_block)
+        self.assertIn('"强转弱风险分"', priority_block)
+        self.assertIn('"强转弱信号"', priority_block)
+        self.assertIn('"观察纪律"', priority_block)
+        self.assertIn('"红旗等级"', priority_block)
+        self.assertIn('"红旗信号"', priority_block)
+        self.assertIn('"强转弱阶段"', filter_block)
+        self.assertIn('"重分类题材"', filter_block)
+        self.assertIn('"题材匹配度"', filter_block)
+        self.assertIn('"红旗等级"', filter_block)
+
     def test_html_reports_open_through_download_endpoint(self):
         app_js = Path("src/ghzw/gui_assets/app.js").read_text(encoding="utf-8")
 

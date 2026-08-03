@@ -97,7 +97,7 @@ def build_report_context(
         limit_up_records=limit_rows,
         market_cycle=_first_non_empty([record.market_cycle for record in rows]),
         market_sentiment=_first_non_empty([record.market_sentiment for record in rows]),
-        top_turnover_records=sorted(rows, key=lambda item: item.turnover, reverse=True)[:5],
+        top_turnover_records=sorted(rows, key=lambda item: item.turnover, reverse=True)[:30],
         research_candidates=_theme_research_candidates(rows, display_by_code),
         sectors=_sector_reports(limit_rows, display_by_code),
         board_groups=_board_groups(limit_rows),
@@ -138,10 +138,14 @@ def render_html_report(context: ReportContext) -> str:
   <h1>{date} 股海贼王复盘报告</h1>
   <p class="muted">论坛讨论仅代表公开市场声音，未经证实；公告、新闻、龙虎榜和规则推断需分开看待。</p>
   {overview}
+  {turnover}
   {research}
+  {theme_audit}
   {sectors}
   {boards}
   {trend}
+  {lifecycle}
+  {red_flags}
   {discussions}
   {risk}
 </main>
@@ -151,10 +155,14 @@ def render_html_report(context: ReportContext) -> str:
         title=_escape("%s 股海贼王复盘报告" % context.trade_date),
         date=_escape(context.trade_date),
         overview=_render_overview(context),
+        turnover=_render_top_turnover(context.top_turnover_records),
         research=_render_research_candidates(context.research_candidates),
+        theme_audit=_render_theme_audit(context.records),
         sectors=_render_sectors(context.sectors),
         boards=_render_boards(context.board_groups),
         trend=_render_trend(context),
+        lifecycle=_render_lifecycle_watch(context.records),
+        red_flags=_render_red_flags(context.records),
         discussions=_render_discussions(context),
         risk=_render_risk(),
     )
@@ -210,6 +218,31 @@ def _render_overview(context: ReportContext) -> str:
     )
 
 
+def _render_top_turnover(records: Sequence[DailyRecord]) -> str:
+    rows = []
+    for index, record in enumerate(records[:30], start=1):
+        rows.append(
+            "<tr><td>{rank}</td><td>{name}</td><td>{record_type}</td><td>{turnover:.2f}</td><td>{change:+.2f}%</td><td>{theme}</td><td>{role}</td><td>{reason}</td></tr>".format(
+                rank=index,
+                name=_escape("%s(%s)" % (record.name, record.code)),
+                record_type=_escape(record.record_type),
+                turnover=record.turnover / 100_000_000,
+                change=record.change_pct,
+                theme=_escape(_display_theme(record)),
+                role=_escape(record.role),
+                reason=_escape(record.reason_type or "不明"),
+            )
+        )
+    body = "\n".join(rows) or '<tr><td colspan="8">暂无成交额榜单数据</td></tr>'
+    return """
+  <h2>成交额 Top30</h2>
+  <table>
+    <thead><tr><th>排名</th><th>个股</th><th>入选类型</th><th>成交额(亿元)</th><th>涨幅</th><th>核心题材</th><th>个股地位</th><th>上涨原因</th></tr></thead>
+    <tbody>{body}</tbody>
+  </table>
+""".format(body=body)
+
+
 def _render_research_candidates(candidates: Sequence[ThemeResearchCandidate]) -> str:
     rows = []
     for candidate in candidates[:10]:
@@ -232,6 +265,35 @@ def _render_research_candidates(candidates: Sequence[ThemeResearchCandidate]) ->
   <h2>板块研究候选</h2>
   <table>
     <thead><tr><th>方向</th><th>细分</th><th>研究分</th><th>标签</th><th>均涨幅</th><th>成交额(亿元)</th><th>扩散</th><th>涨停数</th><th>核心个股</th><th>依据</th></tr></thead>
+    <tbody>{body}</tbody>
+  </table>
+""".format(body=body)
+
+
+def _render_theme_audit(records: Sequence[DailyRecord]) -> str:
+    mismatches = [
+        record
+        for record in records
+        if record.raw_theme and record.reclassified_theme and record.raw_theme != record.reclassified_theme
+    ]
+    mismatches = sorted(mismatches, key=lambda item: (item.theme_match_score, item.turnover), reverse=True)[:12]
+    rows = []
+    for record in mismatches:
+        rows.append(
+            "<tr><td>{name}</td><td>{raw}</td><td>{new}</td><td>{driver}</td><td>{level}</td><td>{reason}</td></tr>".format(
+                name=_escape("%s(%s)" % (record.name, record.code)),
+                raw=_escape(record.raw_theme),
+                new=_escape(record.reclassified_theme),
+                driver=_escape(record.actual_driver),
+                level=_escape(record.theme_match_level),
+                reason=_escape(record.theme_mismatch_reason),
+            )
+        )
+    body = "\n".join(rows) or '<tr><td colspan="6">当日未发现明显题材重分类偏差</td></tr>'
+    return """
+  <h2>题材纠偏审计</h2>
+  <table>
+    <thead><tr><th>个股</th><th>原始题材</th><th>重分类题材</th><th>主导催化</th><th>匹配度</th><th>偏差原因</th></tr></thead>
     <tbody>{body}</tbody>
   </table>
 """.format(body=body)
@@ -265,7 +327,7 @@ def _render_sectors(sectors: Sequence[SectorReport]) -> str:
 def _render_boards(groups: Sequence[BoardGroup]) -> str:
     rows = []
     for group in groups:
-        names = "、".join("%s(%s)" % (_escape(record.name), _escape(record.core_theme)) for record in group.records[:12])
+        names = "、".join("%s(%s)" % (_escape(record.name), _escape(_display_theme(record))) for record in group.records[:12])
         rows.append("<tr><td>{label}</td><td>{count}</td><td>{names}</td></tr>".format(
             label=_escape(group.label),
             count=len(group.records),
@@ -343,6 +405,64 @@ def _render_discussions(context: ReportContext) -> str:
   <h2>市场讨论摘要</h2>
   {content}
 """.format(content=content)
+
+
+def _render_lifecycle_watch(records: Sequence[DailyRecord]) -> str:
+    candidates = [
+        record
+        for record in records
+        if record.lifecycle_stage or record.watchlist_note or record.lifecycle_score > 0
+    ]
+    candidates = sorted(candidates, key=lambda item: (item.lifecycle_score, bool(item.watchlist_note), item.turnover), reverse=True)[:10]
+    rows = []
+    for record in candidates:
+        rows.append(
+            "<tr><td>{name}</td><td>{theme}</td><td>{stage}</td><td>{score:.1f}</td><td>{signals}</td><td>{note}</td><td>{discipline}</td></tr>".format(
+                name=_escape("%s(%s)" % (record.name, record.code)),
+                theme=_escape(_display_theme(record)),
+                stage=_escape(record.lifecycle_stage or "观察"),
+                score=record.lifecycle_score,
+                signals=_escape(record.lifecycle_signals),
+                note=_escape(record.watchlist_note),
+                discipline=_escape(record.lifecycle_discipline),
+            )
+        )
+    body = "\n".join(rows) or '<tr><td colspan="7">暂无明显强转弱观察项</td></tr>'
+    return """
+  <h2>强转弱观察</h2>
+  <table>
+    <thead><tr><th>个股</th><th>核心题材</th><th>阶段</th><th>风险分</th><th>信号</th><th>备注</th><th>观察纪律</th></tr></thead>
+    <tbody>{body}</tbody>
+  </table>
+""".format(body=body)
+
+
+def _render_red_flags(records: Sequence[DailyRecord]) -> str:
+    risky = [record for record in records if record.risk_level or record.risk_flags]
+    risky = sorted(
+        risky,
+        key=lambda item: (_risk_level_rank(item.risk_level), item.lifecycle_score, item.turnover),
+        reverse=True,
+    )[:10]
+    rows = []
+    for record in risky:
+        rows.append(
+            "<tr><td>{name}</td><td>{theme}</td><td>{level}</td><td>{flags}</td><td>{logic}</td></tr>".format(
+                name=_escape("%s(%s)" % (record.name, record.code)),
+                theme=_escape(_display_theme(record)),
+                level=_escape(record.risk_level or "观察"),
+                flags=_escape(record.risk_flags or "暂无"),
+                logic=_escape(record.reason_logic or record.reason_type or "暂无"),
+            )
+        )
+    body = "\n".join(rows) or '<tr><td colspan="5">暂无明显红旗信号</td></tr>'
+    return """
+  <h2>红旗与验证缺口</h2>
+  <table>
+    <thead><tr><th>个股</th><th>核心题材</th><th>等级</th><th>红旗信号</th><th>当前逻辑</th></tr></thead>
+    <tbody>{body}</tbody>
+  </table>
+""".format(body=body)
 
 
 def _render_risk() -> str:
@@ -639,3 +759,14 @@ def _most_common(values: Sequence[str]) -> str:
 
 def _escape(value: object) -> str:
     return html.escape(str(value or ""), quote=True)
+
+
+def _display_theme(record: DailyRecord) -> str:
+    theme = record.core_theme or "未匹配"
+    if record.theme_classification_source == "副图归类（待进一步归类）":
+        return "%s（待进一步归类）" % theme
+    return theme
+
+
+def _risk_level_rank(level: str) -> int:
+    return {"高": 3, "中": 2, "低": 1}.get(level, 0)

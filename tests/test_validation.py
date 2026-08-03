@@ -51,11 +51,15 @@ class ValidationTest(unittest.TestCase):
     def test_read_daily_records_csv_converts_new_turnover_yi_header_to_yuan(self):
         csv_text = (
             "日期,代码,名称,类型,涨停板数,收盘价,昨收,涨幅,成交额(亿元),换手率,量比,所属行业,所属概念,"
-            "核心题材,市场阶段,市场情绪,题材强度排名,题材层级,个股地位,角色分,角色依据,阶段,次日计划,"
-            "资金流-净流入,资金流-主力净流入,上涨逻辑,驱动类型,上涨原因,原因来源,证据时间,一句话复盘\n"
+            "原始题材,核心题材,重分类题材,主导催化,主导事件ID,题材匹配分,题材匹配度,偏差原因,"
+            "市场阶段,市场情绪,题材强度排名,题材层级,个股地位,角色分,角色依据,阶段,次日计划,"
+            "观察备注,强转弱阶段,强转弱风险分,强转弱信号,观察纪律,"
+            "红旗等级,红旗信号,资金流-净流入,资金流-主力净流入,上涨逻辑,驱动类型,上涨原因,原因来源,证据时间,一句话复盘\n"
             "2026-06-17,SH.600001,Alpha,涨停,2板,11,10,10,12.35,8,1.2,半导体-存储器,存储器,"
-            "存储器,上升,涨停1/跌停0/上涨60%/连板高2/昨板无数据,1,主线,龙头,40,连板2,连板,观察验证,"
-            "100,50,逻辑,题材发酵,原因,规则推断,2026-06-17,复盘\n"
+            "华为概念,存储器,存储器,中报/业绩预告,2026-06-17-earnings,82.0,低,华为概念更像泛概念标签,"
+            "上升,涨停1/跌停0/上涨60%/连板高2/昨板无数据,1,主线,龙头,40,连板2,连板,观察验证,"
+            "核心持仓,强转弱验证,68.5,修复失败,停止加仓,"
+            "中,高位连板,100,50,逻辑,题材发酵,原因,规则推断,2026-06-17,复盘\n"
         )
 
         with patch("pathlib.Path.open", mock_open(read_data=csv_text)):
@@ -63,6 +67,14 @@ class ValidationTest(unittest.TestCase):
 
         self.assertEqual(records[0].turnover, 1_235_000_000)
         self.assertEqual(records[0].limit_up_boards, "2板")
+        self.assertEqual(records[0].watchlist_note, "核心持仓")
+        self.assertEqual(records[0].lifecycle_stage, "强转弱验证")
+        self.assertEqual(records[0].lifecycle_score, 68.5)
+        self.assertEqual(records[0].lifecycle_signals, "修复失败")
+        self.assertEqual(records[0].raw_theme, "华为概念")
+        self.assertEqual(records[0].reclassified_theme, "存储器")
+        self.assertEqual(records[0].theme_match_level, "低")
+        self.assertEqual(records[0].risk_level, "中")
 
 
 if __name__ == "__main__":

@@ -3,11 +3,38 @@ import tempfile
 from datetime import date
 from pathlib import Path
 
+from ghzw.event_catalog import build_daily_event_catalog
+from ghzw.lifecycle import WatchlistEntry
 from ghzw.models import CapitalFlow, DailyBar, PlateMembership, ReasonEvidence, StockSnapshot
 from ghzw.pipeline import build_daily_records, run_daily_pipeline, has_enough_historical_snapshot_coverage
 
 
 class PipelineTest(unittest.TestCase):
+    def test_build_daily_records_prefers_formal_theme_library_and_marks_fallback(self):
+        snapshots = [
+            StockSnapshot(code="SH.600101", name="正式分类股", last_price=11, prev_close_price=10, turnover=100),
+            StockSnapshot(code="SH.600102", name="待归类股", last_price=11, prev_close_price=10, turnover=90),
+        ]
+        memberships = {
+            "SH.600101": [PlateMembership(code="GN101", name="机器人概念", plate_type="CONCEPT")],
+            "SH.600102": [PlateMembership(code="GN102", name="PCB概念", plate_type="CONCEPT")],
+        }
+        records = build_daily_records(
+            trade_date=date(2026, 1, 2),
+            snapshots=snapshots,
+            memberships_by_code=memberships,
+            history_by_code={},
+            capital_flow_by_code={},
+            turnover_limit=2,
+            formal_themes_by_code={"SH.600101": ["商业航天"]},
+        )
+
+        by_code = {record.code: record for record in records}
+        self.assertEqual(by_code["SH.600101"].core_theme, "商业航天")
+        self.assertEqual(by_code["SH.600101"].theme_classification_source, "A股主题库")
+        self.assertEqual(by_code["SH.600102"].theme_classification_source, "副图归类（待进一步归类）")
+        self.assertEqual(by_code["SH.600102"].as_dict()["题材分类来源"], "副图归类（待进一步归类）")
+
     def test_build_daily_records_merges_limit_up_turnover_theme_stage_and_flow(self):
         snapshots = [
             StockSnapshot(
@@ -91,6 +118,8 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(by_code["SH.600001"].reason_type, "公告：签订重大合同")
         self.assertIn("上涨逻辑", by_code["SH.600001"].as_dict())
         self.assertIn("公告催化", by_code["SH.600001"].as_dict()["上涨逻辑"])
+        self.assertIn("红旗等级", by_code["SH.600001"].as_dict())
+        self.assertIn("红旗信号", by_code["SH.600001"].as_dict())
         self.assertEqual(by_code["SH.600001"].reason_source, "CNINFO")
         self.assertEqual(by_code["SH.600001"].evidence_time, "2026-01-02 08:00:00")
         self.assertIn(by_code["SH.600001"].next_action, {"观察验证", "轻仓试错", "核心分歧低吸"})
@@ -158,6 +187,7 @@ class PipelineTest(unittest.TestCase):
 
         self.assertIn("板块结构", html)
         self.assertIn("市场讨论摘要", html)
+        self.assertIn("红旗与验证缺口", html)
         self.assertEqual(result.report_warning, "未启用论坛检索")
 
     def test_low_historical_snapshot_coverage_can_fall_back_to_limit_up_pool(self):
@@ -219,6 +249,235 @@ class PipelineTest(unittest.TestCase):
 
         self.assertEqual(records[0].limit_up_boards, "3板")
         self.assertEqual(records[0].industries, "工业金属-铝概念")
+
+    def test_build_daily_records_uses_business_fit_for_theme_and_role_groups(self):
+        snapshots = [
+            StockSnapshot(
+                code="SZ.001270",
+                name="铖昌科技",
+                last_price=11,
+                prev_close_price=10,
+                turnover=2_000_000_000,
+                turnover_rate=7.3,
+                volume_ratio=1.8,
+            ),
+            StockSnapshot(
+                code="SH.600118",
+                name="中国卫星",
+                last_price=11,
+                prev_close_price=10,
+                turnover=4_000_000_000,
+                turnover_rate=12.9,
+                volume_ratio=1.1,
+                market_val=80_000_000_000,
+            ),
+            StockSnapshot(
+                code="SH.688409",
+                name="富创精密",
+                last_price=12,
+                prev_close_price=10,
+                turnover=3_000_000_000,
+                turnover_rate=3.9,
+                volume_ratio=1.3,
+            ),
+        ]
+        memberships = {
+            "SZ.001270": [
+                PlateMembership(code="HY001", name="军工电子Ⅱ", plate_type="INDUSTRY"),
+                PlateMembership(code="GN001", name="半导体", plate_type="CONCEPT"),
+                PlateMembership(code="GN002", name="商业航天", plate_type="CONCEPT"),
+                PlateMembership(code="GN003", name="卫星互联网", plate_type="CONCEPT"),
+            ],
+            "SH.600118": [
+                PlateMembership(code="HY002", name="航天装备Ⅱ", plate_type="INDUSTRY"),
+                PlateMembership(code="GN001", name="半导体", plate_type="CONCEPT"),
+                PlateMembership(code="GN002", name="商业航天", plate_type="CONCEPT"),
+                PlateMembership(code="GN003", name="卫星互联网", plate_type="CONCEPT"),
+            ],
+            "SH.688409": [
+                PlateMembership(code="HY003", name="半导体", plate_type="INDUSTRY"),
+                PlateMembership(code="GN001", name="半导体", plate_type="CONCEPT"),
+                PlateMembership(code="GN004", name="半导体设备概念", plate_type="CONCEPT"),
+            ],
+        }
+
+        records = build_daily_records(
+            trade_date=date(2026, 6, 28),
+            snapshots=snapshots,
+            memberships_by_code=memberships,
+            history_by_code={
+                "SZ.001270": [DailyBar(code="SZ.001270", date="2026-06-28", close=11, change_pct=10)],
+                "SH.600118": [DailyBar(code="SH.600118", date="2026-06-28", close=11, change_pct=10)],
+                "SH.688409": [DailyBar(code="SH.688409", date="2026-06-28", close=12, change_pct=20)],
+            },
+            capital_flow_by_code={snapshot.code: CapitalFlow(code=snapshot.code) for snapshot in snapshots},
+            turnover_limit=0,
+        )
+
+        by_code = {record.code: record for record in records}
+        self.assertEqual(by_code["SZ.001270"].core_theme, "商业航天")
+        self.assertEqual(by_code["SH.600118"].core_theme, "商业航天")
+        self.assertEqual(by_code["SH.688409"].core_theme, "半导体设备概念")
+        self.assertEqual(by_code["SZ.001270"].role, "龙头")
+        self.assertEqual(by_code["SH.600118"].role, "容量核心")
+
+    def test_build_daily_records_reclassifies_generic_label_to_daily_event_driver(self):
+        snapshots = [
+            StockSnapshot(
+                code="SZ.002463",
+                name="沪电股份",
+                last_price=33,
+                prev_close_price=30,
+                turnover=5_000_000_000,
+                turnover_rate=8.5,
+                volume_ratio=1.9,
+            )
+        ]
+        memberships = {
+            "SZ.002463": [
+                PlateMembership(code="HY001", name="元件", plate_type="INDUSTRY"),
+                PlateMembership(code="GN001", name="华为概念", plate_type="CONCEPT"),
+            ]
+        }
+        reasons = [
+            ReasonEvidence(
+                date="2026-07-14",
+                code="SZ.002463",
+                reason_type="公告",
+                summary="中报预告同比增长68%-78%，PCB产品需求持续改善",
+                source="公司公告",
+                confidence="高",
+                published_at="2026-07-13 20:10:00",
+            )
+        ]
+
+        records = build_daily_records(
+            trade_date=date(2026, 7, 14),
+            snapshots=snapshots,
+            memberships_by_code=memberships,
+            history_by_code={"SZ.002463": [DailyBar(code="SZ.002463", date="2026-07-14", close=33, change_pct=10)]},
+            capital_flow_by_code={"SZ.002463": CapitalFlow(code="SZ.002463")},
+            turnover_limit=0,
+            online_reasons=reasons,
+            daily_events=build_daily_event_catalog(date(2026, 7, 14), reasons),
+        )
+
+        record = records[0]
+        self.assertEqual(record.raw_theme, "华为概念")
+        self.assertEqual(record.reclassified_theme, "PCB")
+        self.assertIn(record.actual_driver, {"PCB/算力硬件", "中报/业绩预告（PCB/算力硬件）"})
+        self.assertIn(record.theme_match_level, {"低", "极低"})
+        self.assertIn("泛概念标签", record.theme_mismatch_reason)
+
+    def test_build_daily_records_can_reclassify_robot_label_to_oil_from_business_context(self):
+        snapshots = [
+            StockSnapshot(
+                code="SH.603619",
+                name="中曼石油",
+                last_price=12.1,
+                prev_close_price=11,
+                turnover=2_000_000_000,
+                turnover_rate=9.8,
+                volume_ratio=1.6,
+            )
+        ]
+        memberships = {
+            "SH.603619": [
+                PlateMembership(code="HY001", name="油服工程", plate_type="INDUSTRY"),
+                PlateMembership(code="GN001", name="机器人概念", plate_type="CONCEPT"),
+                PlateMembership(code="GN002", name="油气", plate_type="CONCEPT"),
+                PlateMembership(code="GN003", name="油气设备服务", plate_type="CONCEPT"),
+            ]
+        }
+
+        records = build_daily_records(
+            trade_date=date(2026, 7, 14),
+            snapshots=snapshots,
+            memberships_by_code=memberships,
+            history_by_code={"SH.603619": [DailyBar(code="SH.603619", date="2026-07-14", close=12.1, change_pct=10)]},
+            capital_flow_by_code={"SH.603619": CapitalFlow(code="SH.603619")},
+            turnover_limit=0,
+        )
+
+        record = records[0]
+        self.assertEqual(record.reclassified_theme, "油气")
+        self.assertIn("油气/地缘冲突", record.actual_driver)
+        if record.raw_theme == "机器人":
+            self.assertEqual(record.theme_match_level, "极低")
+            self.assertIn("机器人仅概念标签", record.theme_mismatch_reason)
+
+    def test_build_daily_records_marks_ipo_first_day_as_independent_leader(self):
+        snapshots = [
+            StockSnapshot(
+                code="SZ.001399",
+                name="N惠科股份",
+                last_price=42,
+                prev_close_price=10.12,
+                turnover=13_000_000_000,
+                turnover_rate=65.9,
+                change_rate=315.02,
+            )
+        ]
+
+        records = build_daily_records(
+            trade_date=date(2026, 6, 28),
+            snapshots=snapshots,
+            memberships_by_code={
+                "SZ.001399": [
+                    PlateMembership(code="HY001", name="光学光电子", plate_type="INDUSTRY"),
+                    PlateMembership(code="GN001", name="消费电子产业", plate_type="CONCEPT"),
+                    PlateMembership(code="GN002", name="上市首五日", plate_type="CONCEPT"),
+                ]
+            },
+            history_by_code={"SZ.001399": [DailyBar(code="SZ.001399", date="2026-06-28", close=42, change_pct=315.02)]},
+            capital_flow_by_code={"SZ.001399": CapitalFlow(code="SZ.001399")},
+            turnover_limit=0,
+        )
+
+        self.assertEqual(records[0].role, "IPO首日龙头")
+        self.assertIn("新股首日", records[0].role_basis)
+
+    def test_build_daily_records_includes_watchlist_stock_and_lifecycle_fields(self):
+        snapshots = [
+            StockSnapshot(code="SH.600010", name="Limit", last_price=11, prev_close_price=10, turnover=500, change_rate=10),
+            StockSnapshot(code="SH.600011", name="Watch", last_price=18, prev_close_price=18.5, turnover=900, change_rate=-2.7),
+            StockSnapshot(code="SH.600012", name="Peer", last_price=11, prev_close_price=10, turnover=800, change_rate=10),
+        ]
+        memberships = {
+            "SH.600010": [PlateMembership(code="GN001", name="AI算力", plate_type="CONCEPT")],
+            "SH.600011": [PlateMembership(code="GN001", name="AI算力", plate_type="CONCEPT")],
+            "SH.600012": [PlateMembership(code="GN001", name="AI算力", plate_type="CONCEPT")],
+        }
+        watch_history = [
+            DailyBar(code="SH.600011", date="2026-06-%02d" % day, close=10 + day * 0.4, turnover=100_000_000)
+            for day in range(1, 21)
+        ] + [
+            DailyBar(code="SH.600011", date="2026-06-21", close=20, high=20.5, turnover=130_000_000),
+            DailyBar(code="SH.600011", date="2026-06-22", close=19.4, high=20.0, turnover=150_000_000),
+            DailyBar(code="SH.600011", date="2026-06-23", close=18.8, high=19.1, turnover=160_000_000),
+            DailyBar(code="SH.600011", date="2026-06-24", close=18.0, high=18.4, turnover=420_000_000, change_pct=-2.7),
+        ]
+
+        records = build_daily_records(
+            trade_date=date(2026, 6, 24),
+            snapshots=snapshots,
+            memberships_by_code=memberships,
+            history_by_code={
+                "SH.600010": [DailyBar(code="SH.600010", date="2026-06-24", close=11, change_pct=10)],
+                "SH.600011": watch_history,
+                "SH.600012": [DailyBar(code="SH.600012", date="2026-06-24", close=11, change_pct=10)],
+            },
+            capital_flow_by_code={code: CapitalFlow(code=code) for code in ["SH.600010", "SH.600011", "SH.600012"]},
+            turnover_limit=1,
+            watchlist_entries=[WatchlistEntry(code="SH.600011", note="核心持仓")],
+        )
+
+        by_code = {record.code: record for record in records}
+        self.assertIn("SH.600011", by_code)
+        self.assertEqual(by_code["SH.600011"].record_type, "观察名单")
+        self.assertEqual(by_code["SH.600011"].watchlist_note, "核心持仓")
+        self.assertIn(by_code["SH.600011"].lifecycle_stage, {"强转弱验证", "趋势破坏"})
+        self.assertIn("相对题材偏弱", by_code["SH.600011"].lifecycle_signals)
 
 
 class _FakeClient:

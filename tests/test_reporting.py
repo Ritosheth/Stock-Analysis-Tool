@@ -62,12 +62,87 @@ class ReportingTest(unittest.TestCase):
         html = render_html_report(context)
 
         self.assertIn("板块结构", html)
+        self.assertIn("成交额 Top30", html)
         self.assertIn("板块研究候选", html)
+        self.assertIn("题材纠偏审计", html)
         self.assertIn("连板梯队", html)
         self.assertIn("市场讨论摘要", html)
         self.assertIn("Alpha", html)
         self.assertIn("3.00亿元", html)
         self.assertIn("https://xueqiu.com/123", html)
+
+    def test_build_context_keeps_top_30_turnover_records_for_report(self):
+        records = [
+            _record("SH.%06d" % index, "Stock%d" % index, "半导体", "半导体", index * 100_000_000, "1板")
+            for index in range(1, 36)
+        ]
+
+        context = build_report_context(date(2026, 6, 17), records)
+
+        self.assertEqual(len(context.top_turnover_records), 30)
+        self.assertEqual(context.top_turnover_records[0].name, "Stock35")
+        self.assertEqual(context.top_turnover_records[-1].name, "Stock6")
+
+    def test_render_html_report_contains_lifecycle_watch_section(self):
+        record = _record("SH.600001", "Alpha", "半导体", "半导体-存储器", 300_000_000, "2板")
+        record = record.__class__(
+            **{
+                **record.__dict__,
+                "watchlist_note": "核心持仓",
+                "lifecycle_stage": "强转弱验证",
+                "lifecycle_score": 68.0,
+                "lifecycle_signals": "修复失败、相对题材偏弱",
+                "lifecycle_discipline": "停止加仓，考虑减仓。",
+            }
+        )
+        context = build_report_context(date(2026, 6, 17), [record])
+
+        html = render_html_report(context)
+
+        self.assertIn("强转弱观察", html)
+        self.assertIn("强转弱验证", html)
+        self.assertIn("修复失败、相对题材偏弱", html)
+        self.assertIn("核心持仓", html)
+
+    def test_render_html_report_contains_red_flag_section(self):
+        record = _record("SH.603137", "恒尚节能", "并购重组", "建筑装饰", 600_000_000, "5板")
+        record = record.__class__(
+            **{
+                **record.__dict__,
+                "risk_level": "高",
+                "risk_flags": "高位连板、监管/重组敏感",
+                "reason_logic": "题材发酵主导：跨界收购存储模组资产。",
+            }
+        )
+        context = build_report_context(date(2026, 6, 17), [record])
+
+        html = render_html_report(context)
+
+        self.assertIn("红旗与验证缺口", html)
+        self.assertIn("监管/重组敏感", html)
+        self.assertIn("恒尚节能", html)
+
+    def test_render_html_report_contains_theme_reclassification_audit(self):
+        record = _record("SZ.002463", "沪电股份", "PCB", "元件-PCB概念", 300_000_000, "1板")
+        record = record.__class__(
+            **{
+                **record.__dict__,
+                "raw_theme": "华为概念",
+                "reclassified_theme": "PCB",
+                "actual_driver": "PCB/算力硬件",
+                "theme_match_level": "极低",
+                "theme_mismatch_reason": "华为概念更像泛概念标签，当日主导催化转向PCB。",
+            }
+        )
+        context = build_report_context(date(2026, 6, 17), [record])
+
+        html = render_html_report(context)
+
+        self.assertIn("题材纠偏审计", html)
+        self.assertIn("原始题材", html)
+        self.assertIn("重分类题材", html)
+        self.assertIn("华为概念", html)
+        self.assertIn("PCB/算力硬件", html)
 
     def test_render_html_report_falls_back_to_public_evidence_when_forum_empty(self):
         record = _record("SH.603986", "兆易创新", "TMT", "半导体-MCU芯片/存储器", 300_000_000, "1板")
